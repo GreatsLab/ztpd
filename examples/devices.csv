@@ -1,0 +1,10 @@
+# pasted from the rack-and-stack sheet; extra columns become template variables
+serial,hostname,role,site,mgmt_ip,asn,loopback,spine1_ip,spine2_ip,rack
+JPE21140001,lag-leaf-01,leaf,lagos-dc,10.20.99.21/24,65101,10.255.0.11/32,10.0.1.0,10.0.2.0,B04
+JPE21140002,lag-leaf-02,leaf,lagos-dc,10.20.99.22/24,65102,10.255.0.12/32,10.0.1.2,10.0.2.2,B05
+FOC2231X0A1,lag-acc-01,access,lagos-dc,10.20.99.31/24,,,,,B01
+FOC2231X0A2,lag-acc-02,access,lagos-dc,10.20.99.32/24,,,,,B01
+FOC2231X0B7,lag-acc-03,access,lagos-dc,10.20.99.33/24,,,,,B02
+FOC2231X0C4,lag-acc-04,access,lagos-dc,10.20.99.34/24,,,,,B02
+FOC2318Y1D9,abj-acc-01,access,abuja-br,10.30.99.11/24,,,,,CR1
+FOC2318Y1E2,abj-acc-02,access,abuja-br,10.30.99.12/24,,,,,CR1

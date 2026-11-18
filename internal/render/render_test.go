@@ -41,7 +41,6 @@ access-list 10 permit {{network .mgmt_ip}} {{wildcard .mgmt_ip}}
 	}
 	want := `hostname sw1
 ntp server 10.0.0.1
-
 interface Vlan99
  ip address 10.20.99.11 255.255.255.0
 ip default-gateway 10.20.99.1
@@ -88,5 +87,18 @@ func TestMaskEdges(t *testing.T) {
 	}
 	if _, err := Funcs["nthhost"].(func(any, int) (string, error))("10.0.0.0/30", 4); err == nil {
 		t.Error("nthhost outside the prefix should fail")
+	}
+}
+
+func TestSeqTakesJSONAndCSVNumbers(t *testing.T) {
+	seq := Funcs["seq"].(func(any, any) ([]int, error))
+	for _, b := range []any{3, float64(3), "3", " 3"} {
+		got, err := seq(1, b)
+		if err != nil || len(got) != 3 {
+			t.Errorf("seq 1 %#v = %v, %v", b, got, err)
+		}
+	}
+	if _, err := seq(1, 2.5); err == nil {
+		t.Error("2.5 ports should be an error")
 	}
 }

@@ -1,0 +1,48 @@
+{
+  "defaults": {
+    "domain": "net.auroxlab.ng",
+    "ntp": ["10.20.0.1", "10.20.0.2"],
+    "syslog": "10.20.0.5",
+    "snmp_location": "unset"
+  },
+  "sites": {
+    "lagos-dc": {
+      "vars": { "snmp_location": "Lagos DC, Hall B", "syslog": "10.20.0.5" }
+    },
+    "abuja-br": {
+      "vars": { "snmp_location": "Abuja branch, comms room", "ntp": ["10.30.0.1"], "syslog": "10.30.0.5" }
+    }
+  },
+  "roles": {
+    "access": {
+      "template": "access-ios.tmpl",
+      "platform": "ios-xe",
+      "vars": {
+        "access_ports": 48,
+        "uplinks": ["TenGigabitEthernet1/1/1", "TenGigabitEthernet1/1/2"],
+        "vlans": [
+          { "id": 10, "name": "STAFF" },
+          { "id": 20, "name": "VOICE" },
+          { "id": 30, "name": "PRINTERS" },
+          { "id": 99, "name": "MGMT" }
+        ],
+        "data_vlan": 10,
+        "voice_vlan": 20,
+        "mgmt_vlan": 99
+      }
+    },
+    "leaf": {
+      "template": "leaf-eos.tmpl",
+      "platform": "eos",
+      "vars": {
+        "spine_asn": 65000,
+        "server_ports": 48,
+        "server_vlans": [
+          { "id": 110, "name": "VPS-POOL-1" },
+          { "id": 120, "name": "VPS-POOL-2" },
+          { "id": 130, "name": "STORAGE" }
+        ]
+      }
+    }
+  }
+}

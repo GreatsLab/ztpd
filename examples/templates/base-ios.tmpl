@@ -1,0 +1,28 @@
+{{define "ios-base"}}
+hostname {{.hostname}}
+ip domain name {{.domain}}
+!
+username admin privilege 15 secret {{env "ZTP_ADMIN_SECRET"}}
+enable secret {{env "ZTP_ENABLE_SECRET"}}
+aaa new-model
+aaa authentication login default local
+aaa authorization exec default local
+!
+service timestamps log datetime msec localtime show-timezone
+service password-encryption
+no ip http server
+no ip http secure-server
+!
+{{range .ntp}}ntp server {{.}}
+{{end}}
+logging host {{.syslog}}
+snmp-server location {{.snmp_location}}, rack {{.rack}}
+snmp-server community {{env "ZTP_SNMP_RO"}} RO
+!
+ip ssh version 2
+crypto key generate rsa modulus 2048
+line vty 0 15
+ transport input ssh
+ login local
+ exec-timeout 15 0
+{{end}}

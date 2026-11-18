@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -77,20 +78,13 @@ func (r *Renderer) Render(d *inv.Device) (string, error) {
 	if err := t.ExecuteTemplate(&buf, d.Template, data); err != nil {
 		return "", cleanErr(err)
 	}
-	// tidy: no trailing spaces, at most one blank line in a row
+	// tidy: no trailing spaces and no blank lines. {{range}} and {{define}}
+	// leave newlines behind, and "!" is the separator a config actually uses.
 	var out []string
-	blank := false
 	for _, l := range strings.Split(buf.String(), "\n") {
-		l = strings.TrimRight(l, " \t")
-		if l == "" {
-			if blank {
-				continue
-			}
-			blank = true
-		} else {
-			blank = false
+		if l = strings.TrimRight(l, " \t\r"); l != "" {
+			out = append(out, l)
 		}
-		out = append(out, l)
 	}
 	return strings.TrimSpace(strings.Join(out, "\n")) + "\n", nil
 }
@@ -180,12 +174,58 @@ var Funcs = template.FuncMap{
 		}
 		return v
 	},
-	// {{range seq 1 48}} for port ranges
-	"seq": func(a, b int) []int {
+	// {{env "ZTP_ENABLE_SECRET"}}: secrets come from the environment, not
+	// from files in git. Unset is an error, never an empty password.
+	"env": func(k string) (string, error) {
+		v := os.Getenv(k)
+		if v == "" {
+			return "", fmt.Errorf("environment variable %s is not set", k)
+		}
+		return v, nil
+	},
+	// {{join "," (vlanids .vlans)}} -> "10,20,30,99"
+	"vlanids": func(vlans []any) []any {
+		var out []any
+		for _, v := range vlans {
+			if m, ok := v.(map[string]any); ok {
+				out = append(out, m["id"])
+			}
+		}
+		return out
+	},
+	// {{range seq 1 .access_ports}} for port ranges. Takes any number type:
+	// JSON numbers arrive as float64 and CSV columns as strings.
+	"seq": func(a, b any) ([]int, error) {
+		x, err := toInt(a)
+		if err != nil {
+			return nil, err
+		}
+		y, err := toInt(b)
+		if err != nil {
+			return nil, err
+		}
+		if y-x > 4096 {
+			return nil, fmt.Errorf("seq %d %d: that's a lot of interfaces", x, y)
+		}
 		var o []int
-		for i := a; i <= b; i++ {
+		for i := x; i <= y; i++ {
 			o = append(o, i)
 		}
-		return o
+		return o, nil
 	},
+}
+
+func toInt(v any) (int, error) {
+	switch n := v.(type) {
+	case int:
+		return n, nil
+	case float64:
+		if n != float64(int(n)) {
+			return 0, fmt.Errorf("%v is not a whole number", n)
+		}
+		return int(n), nil
+	case string:
+		return strconv.Atoi(strings.TrimSpace(n))
+	}
+	return 0, fmt.Errorf("%v (%T) is not a number", v, v)
 }
