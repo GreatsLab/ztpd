@@ -1,1 +1,317 @@
-<!doctype html><title>ztpd</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ztpd</title>
+<link rel="icon" href="data:,">
+<style>
+/* No web fonts or CDNs: this usually runs on a management network with no
+   internet. Stage colours borrow fibre jacket colours: OM3 aqua = done,
+   OS2 yellow = in progress, OM4 violet = unknown box. */
+:root {
+  --bg: #17212b; --panel: #1d2935; --line: #2b3a48; --text: #e4ebf1; --muted: #8b9bab;
+  --done: #3fb8c9; --busy: #f2c14e; --fail: #f0605d; --unknown: #a78bfa; --wait: #4a5b6c;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.45 "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", sans-serif; }
+button { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button:focus-visible, .dev:focus-visible { outline: 2px solid var(--done); outline-offset: 2px; }
+.mono { font-family: var(--mono); font-size: 13px; }
+
+header { display: flex; align-items: center; gap: 16px; padding: 14px 24px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+header h1 { font-size: 18px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+header .loaded { color: var(--muted); font-size: 13px; }
+header .actions { margin-left: auto; display: flex; gap: 8px; }
+
+main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 0; min-height: calc(100vh - 57px); }
+@media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+.left { padding: 20px 24px; min-width: 0; }
+aside { border-left: 1px solid var(--line); padding: 20px; min-width: 0; }
+@media (max-width: 1000px) { aside { border-left: 0; border-top: 1px solid var(--line); } }
+
+.rollout { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
+.rollout .big { font-size: 40px; font-weight: 300; line-height: 1; font-variant-numeric: tabular-nums; }
+.rollout .big small { font-size: 18px; color: var(--muted); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
+.legend b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+.bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--wait); margin: 14px 0 18px; }
+.bar span { transition: width .4s; }
+
+.boot { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px 12px; align-items: center;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 18px; }
+.boot .k { color: var(--muted); font-size: 13px; }
+.boot code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.boot button { padding: 2px 10px; font-size: 13px; }
+
+.problems { border: 1px solid #6b3a3c; background: #2a2026; border-radius: 8px; padding: 12px 14px; margin-bottom: 18px; }
+.problems h2 { font-size: 14px; margin: 0 0 6px; color: #ffb4b2; font-weight: 600; }
+.problems ul { margin: 0; padding-left: 18px; font-size: 13.5px; }
+
+.site h2 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 18px 0 6px; }
+.dev { display: grid; grid-template-columns: 130px 120px 74px 168px minmax(0, 1fr); gap: 12px; align-items: center;
+  padding: 9px 10px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; }
+.dev:hover { background: var(--panel); border-color: var(--line); }
+.dev .host { font-weight: 600; }
+.dev .role { color: var(--muted); font-size: 13px; }
+.dev .msg { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dev.failed .msg, .dev .msg.err { color: #ffb4b2; }
+@media (max-width: 700px) {
+  .dev { grid-template-columns: 1fr auto; }
+  .dev .serial, .dev .role { display: none; }
+  .dev .msg { grid-column: 1 / -1; }
+}
+
+/* the rail: four stops a switch passes through */
+.rail { display: flex; align-items: center; }
+.rail i { width: 10px; height: 10px; border-radius: 50%; background: var(--wait); flex: none; }
+.rail u { height: 2px; width: 30px; background: var(--wait); flex: none; text-decoration: none; }
+.rail .on { background: var(--done); }
+.rail .now { background: var(--busy); box-shadow: 0 0 0 4px rgba(242, 193, 78, .18); }
+.rail .bad { background: var(--fail); box-shadow: 0 0 0 4px rgba(240, 96, 93, .2); }
+.rail .unk { background: var(--unknown); }
+@media (prefers-reduced-motion: no-preference) {
+  .rail .now { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 7px rgba(242, 193, 78, .05); } }
+}
+
+aside h2 { font-size: 14px; margin: 0 0 10px; font-weight: 600; }
+.log { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.log li { padding: 7px 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 8px; }
+.log time { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.log .who { font-weight: 600; }
+.log .what { color: var(--muted); overflow-wrap: anywhere; }
+.log .bad .what { color: #ffb4b2; }
+.empty { color: var(--muted); font-size: 14px; }
+
+dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px;
+  width: min(760px, 94vw); max-height: 88vh; padding: 0; }
+dialog::backdrop { background: rgba(8, 14, 20, .6); }
+dialog .hd { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+dialog .hd h3 { margin: 0; font-size: 17px; }
+dialog .hd .x { margin-left: auto; }
+dialog .bd { padding: 14px 18px; overflow: auto; max-height: calc(88vh - 60px); }
+dialog dl { display: grid; grid-template-columns: 110px 1fr; gap: 4px 12px; margin: 0 0 14px; font-size: 14px; }
+dialog dt { color: var(--muted); }
+dialog dd { margin: 0; }
+pre.cfg { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 12px; margin: 8px 0 0;
+  font: 12.5px/1.5 var(--mono); max-height: 380px; overflow: auto; white-space: pre; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ztpd</h1>
+  <span class="loaded" id="loaded"></span>
+  <div class="actions">
+    <button id="tokenBtn" hidden>Write access</button>
+    <button id="reloadBtn">Reload sheet</button>
+  </div>
+</header>
+<main>
+  <section class="left">
+    <div class="rollout">
+      <div class="big" id="done">0<small> / 0 provisioned</small></div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="bar" id="bar" role="img" aria-label="rollout progress"></div>
+
+    <div class="boot" id="boot"></div>
+    <div class="problems" id="problems" hidden></div>
+    <div id="sites"></div>
+  </section>
+  <aside>
+    <h2>What the switches are doing</h2>
+    <ul class="log" id="log"></ul>
+  </aside>
+</main>
+
+<dialog id="dlg">
+  <div class="hd"><h3 id="dTitle"></h3><span class="mono" id="dSerial"></span><button class="x" id="dClose">Close</button></div>
+  <div class="bd" id="dBody"></div>
+</dialog>
+
+<script>
+const STAGES = {
+  waiting:      { label: "waiting",      color: "var(--wait)" },
+  bootstrapped: { label: "running script", color: "var(--busy)" },
+  "config-sent":{ label: "applying config", color: "var(--busy)" },
+  applied:      { label: "provisioned",  color: "var(--done)" },
+  failed:       { label: "failed",       color: "var(--fail)" },
+  unknown:      { label: "not in sheet", color: "var(--unknown)" },
+};
+const ORDER = ["waiting", "bootstrapped", "config-sent", "applied"];
+let token = sessionStorageGet("ztpd-token") || "";
+let summary = null, devices = [];
+
+function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
+function sessionStorageSet(k, v) { try { sessionStorage.setItem(k, v); } catch {} }
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const hdrs = () => (token ? { Authorization: "Bearer " + token } : {});
+function ago(t) {
+  if (!t) return "";
+  const s = Math.max(0, (Date.now() - new Date(t)) / 1000);
+  if (s < 60) return Math.round(s) + "s ago";
+  if (s < 3600) return Math.round(s / 60) + "m ago";
+  if (s < 86400) return Math.round(s / 3600) + "h ago";
+  return new Date(t).toLocaleDateString();
+}
+const hhmm = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+
+function rail(stage, msg) {
+  if (stage === "unknown") return `<span class="rail"><i class="unk"></i></span>`;
+  // a failure shows at the stop it got to
+  let reached = ORDER.indexOf(stage);
+  let failedAt = -1;
+  if (stage === "failed") {
+    failedAt = /download|HTTP|config/i.test(msg || "") ? 2 : 3;
+    reached = failedAt - 1;
+  }
+  let h = "";
+  ORDER.forEach((s, i) => {
+    let c = i <= reached ? "on" : "";
+    if (i === reached && stage !== "applied" && stage !== "waiting" && stage !== "failed") c = "now";
+    if (i === failedAt) c = "bad";
+    if (i === 0 && stage !== "waiting") c = c || "on";
+    if (i > 0) h += `<u class="${i <= reached || i === failedAt ? (i === failedAt ? "bad" : "on") : ""}"></u>`;
+    h += `<i class="${c}" title="${STAGES[s].label}"></i>`;
+  });
+  return `<span class="rail" aria-label="${esc(STAGES[stage]?.label)}">${h}</span>`;
+}
+
+function render() {
+  if (!summary) return;
+  const st = summary.stages || {};
+  const total = devices.length || 1;
+  $("done").innerHTML = `${st.applied || 0}<small> / ${summary.total} provisioned</small>`;
+  $("legend").innerHTML = Object.entries(STAGES)
+    .filter(([k]) => st[k])
+    .map(([k, v]) => `<span><span class="sw" style="background:${v.color}"></span>${v.label} <b>${st[k]}</b></span>`).join("");
+  $("bar").innerHTML = ["applied", "config-sent", "bootstrapped", "failed", "unknown"]
+    .filter((k) => st[k])
+    .map((k) => `<span style="width:${(100 * st[k]) / total}%;background:${STAGES[k].color}"></span>`).join("");
+  $("loaded").textContent = "sheet loaded " + ago(summary.loaded) + (summary.once ? " · one config per switch" : "");
+  $("tokenBtn").hidden = !summary.needs_token;
+  $("tokenBtn").textContent = token ? "Write access ✓" : "Write access";
+
+  $("boot").innerHTML = `
+    <span class="k">IOS-XE</span><code class="mono">option 67 ${esc(summary.bootstrap["ios-xe"])}</code><button data-copy="${esc(summary.bootstrap["ios-xe"])}">Copy</button>
+    <span class="k">Arista EOS</span><code class="mono">option 67 ${esc(summary.bootstrap.eos)}</code><button data-copy="${esc(summary.bootstrap.eos)}">Copy</button>`;
+
+  const probs = [...(summary.problems || [])];
+  devices.filter((d) => d.render_error).forEach((d) => probs.push(`${d.hostname}: ${d.render_error}`));
+  $("problems").hidden = probs.length === 0;
+  $("problems").innerHTML = `<h2>${probs.length} thing${probs.length === 1 ? "" : "s"} to fix before these switches boot</h2>
+    <ul>${probs.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>`;
+
+  const bySite = {};
+  devices.forEach((d) => (bySite[d.stage === "unknown" ? "Not in the device sheet" : d.site || "no site"] ??= []).push(d));
+  const names = Object.keys(bySite).sort((a, b) => (a.startsWith("Not") ? 1 : b.startsWith("Not") ? -1 : a.localeCompare(b)));
+  $("sites").innerHTML = names.length ? names.map((site) => `
+    <div class="site"><h2>${esc(site)} · ${bySite[site].length}</h2>
+    ${bySite[site].map((d) => `
+      <div class="dev ${d.stage}" tabindex="0" data-serial="${esc(d.serial)}">
+        <span class="host">${esc(d.hostname || "unknown box")}</span>
+        <span class="serial mono">${esc(d.serial)}</span>
+        <span class="role">${esc(d.role || d.remote || "")}</span>
+        ${rail(d.stage, d.msg)}
+        <span class="msg ${d.render_error ? "err" : ""}">${esc(d.render_error ? "won't render: " + d.render_error : d.msg ? d.msg : d.stage === "waiting" ? "not seen yet" : "")}${d.last_seen ? " · " + ago(d.last_seen) : ""}</span>
+      </div>`).join("")}
+    </div>`).join("") : `<p class="empty">The device sheet is empty. Add rows to devices.csv and press Reload sheet.</p>`;
+}
+
+async function refresh() {
+  try {
+    const [s, d, e] = await Promise.all(["/api/summary", "/api/devices", "/api/events?n=60"].map((u) => fetch(u).then((r) => r.json())));
+    summary = s; devices = d || [];
+    render();
+    $("log").innerHTML = e.length ? e.map((ev) => `
+      <li class="${ev.ok || ev.kind === "script" ? "" : "bad"}"><time>${hhmm(ev.time)}</time>
+        <div><span class="who">${esc(ev.hostname || ev.serial || ev.remote)}</span>
+        <div class="what">${esc(describe(ev))}</div></div></li>`).join("")
+      : `<li class="empty">Nothing yet. When a switch boots with option 67 pointing here, its steps show up in this list.</li>`;
+  } catch (err) {
+    $("loaded").textContent = "can't reach ztpd: " + err.message;
+  }
+}
+
+function describe(ev) {
+  switch (ev.kind) {
+    case "script": return ev.msg;
+    case "config": return ev.ok ? `fetched config (${ev.msg}, ${ev.hash})` : `config failed: ${ev.msg}`;
+    case "unknown": return `${ev.serial} from ${ev.remote} isn't in the device sheet`;
+    case "denied": return ev.msg;
+    case "rearm": return `re-armed ${ev.msg}`;
+    case "report": return ev.ok ? (ev.step === "applied" ? `done: ${ev.msg}` : `${ev.step}: ${ev.msg}`) : `failed at ${ev.step}: ${ev.msg}`;
+  }
+  return ev.msg || ev.kind;
+}
+
+async function openDevice(serial) {
+  const d = devices.find((x) => x.serial === serial);
+  if (!d) return;
+  $("dTitle").textContent = d.hostname || "Unknown switch";
+  $("dSerial").textContent = d.serial;
+  const evs = await fetch("/api/events?n=100&serial=" + encodeURIComponent(serial)).then((r) => r.json());
+  $("dBody").innerHTML = `
+    <dl>
+      <dt>Stage</dt><dd>${esc(STAGES[d.stage]?.label || d.stage)}</dd>
+      ${d.role ? `<dt>Role</dt><dd>${esc(d.role)} (${esc(d.platform)})</dd>` : ""}
+      ${d.site ? `<dt>Site</dt><dd>${esc(d.site)}</dd>` : ""}
+      ${d.mgmt_ip ? `<dt>Mgmt IP</dt><dd class="mono">${esc(d.mgmt_ip)}</dd>` : ""}
+      ${d.remote ? `<dt>Booted from</dt><dd class="mono">${esc(d.remote)}</dd>` : ""}
+      ${d.hash ? `<dt>Config</dt><dd class="mono">${esc(d.hash)} · served ${d.attempts}×</dd>` : ""}
+    </dl>
+    ${d.stage === "unknown" ? `<p>This box asked for a config but its serial isn't in <span class="mono">devices.csv</span>. Add a row for it (or fix the typo) and press Reload sheet; it'll get its config on the next retry.</p>` : ""}
+    <div class="row">
+      ${d.hostname ? `<button id="showCfg">Show config</button>` : ""}
+      ${d.stage === "applied" && summary.once ? `<button id="rearm">Re-arm (serve config again)</button>` : ""}
+    </div>
+    <div id="cfgOut"></div>
+    <h4 style="margin:16px 0 6px;font-size:14px">History</h4>
+    <ul class="log">${evs.map((ev) => `<li class="${ev.ok || ev.kind === "script" ? "" : "bad"}"><time>${hhmm(ev.time)}</time><div class="what">${esc(describe(ev))}</div></li>`).join("") || `<li class="empty">Not seen yet.</li>`}</ul>`;
+  $("showCfg")?.addEventListener("click", async () => {
+    const r = await fetch(`/api/devices/${encodeURIComponent(serial)}/config`, { headers: hdrs() });
+    const t = await r.text();
+    $("cfgOut").innerHTML = r.status === 401 ? `<p>The config has secrets in it. Use Write access first.</p>`
+      : `<pre class="cfg">${esc(t)}</pre>`;
+  });
+  $("rearm")?.addEventListener("click", async () => {
+    const r = await fetch(`/api/devices/${encodeURIComponent(serial)}/rearm`, { method: "POST", headers: { ...hdrs(), "X-Actor": "dashboard" } });
+    if (r.ok) { $("dlg").close(); refresh(); } else $("cfgOut").innerHTML = `<p>Re-arm needs Write access (HTTP ${r.status}).</p>`;
+  });
+  $("dlg").showModal();
+}
+
+document.addEventListener("click", (e) => {
+  const c = e.target.closest("[data-copy]");
+  if (c) { navigator.clipboard?.writeText(c.dataset.copy); c.textContent = "Copied"; setTimeout(() => (c.textContent = "Copy"), 1200); }
+  const d = e.target.closest(".dev");
+  if (d) openDevice(d.dataset.serial);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.classList?.contains("dev")) openDevice(e.target.dataset.serial);
+});
+$("dClose").onclick = () => $("dlg").close();
+$("tokenBtn").onclick = () => {
+  const t = prompt("ZTPD_TOKEN (kept for this browser tab only)", token);
+  if (t !== null) { token = t.trim(); sessionStorageSet("ztpd-token", token); render(); }
+};
+$("reloadBtn").onclick = async () => {
+  const r = await fetch("/api/reload", { method: "POST", headers: hdrs() });
+  if (r.status === 401) alert("Reloading needs Write access.");
+  else if (!r.ok) alert(await r.text());
+  refresh();
+};
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

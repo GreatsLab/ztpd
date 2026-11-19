@@ -120,6 +120,7 @@ func (s *Store) apply(e Event) {
 	case "config":
 		if e.OK {
 			d.Stage, d.Hash = StageConfigSent, e.Hash
+			d.Msg = "downloaded its config (" + e.Msg + "), applying"
 			d.Attempts++
 		} else {
 			d.Stage, d.Msg = StageFailed, e.Msg
