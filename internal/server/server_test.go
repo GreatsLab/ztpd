@@ -107,6 +107,7 @@ func TestFullProvisioningFlow(t *testing.T) {
 func TestUnknownAndBroken(t *testing.T) {
 	ts, _, _ := setup(t, nil)
 	code, _ := do(t, "GET", ts.URL+"/ztp/config/NOPE123", "")
+	do(t, "POST", ts.URL+"/ztp/report/NOPE123", `{"step":"config","ok":false,"msg":"HTTP 404"}`) // what the script does next
 	if code != 404 || stage(t, ts, "NOPE123") != StageUnknown {
 		t.Fatalf("unknown serial: %d, stage %s", code, stage(t, ts, "NOPE123"))
 	}

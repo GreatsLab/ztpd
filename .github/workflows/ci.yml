@@ -1,0 +1,70 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - run: go vet ./...
+      - run: go test -race ./...
+
+  # what you'd run in the repo that holds your real inventory: every device
+  # must render before anything is racked
+  check-examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - run: go build -o ztpd .
+      - name: ztpd check
+        working-directory: examples
+        env:
+          ZTP_ADMIN_SECRET: ci-dummy
+          ZTP_ENABLE_SECRET: ci-dummy
+          ZTP_SNMP_RO: ci-dummy
+        run: ../ztpd check
+
+  rollout:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - run: go build -o ztpd .
+      - name: simulated rollout
+        working-directory: examples
+        env:
+          ZTP_ADMIN_SECRET: ci-dummy
+          ZTP_ENABLE_SECRET: ci-dummy
+          ZTP_SNMP_RO: ci-dummy
+        run: |
+          ../ztpd serve -listen 127.0.0.1:8080 -log /tmp/events.jsonl -once &
+          for i in $(seq 20); do curl -sf localhost:8080/healthz && break; sleep 0.5; done
+          ../ztpd simulate -server http://127.0.0.1:8080
+          curl -s localhost:8080/api/summary | tee /tmp/summary.json
+          grep -q '"applied": 8' /tmp/summary.json
+          # -once: a second fetch for a provisioned switch is refused
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8080/ztp/config/JPE21140001)" = 409
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t ztpd .
+      - run: |
+          docker run -d --name z -p 8080:8080 -e ZTP_ADMIN_SECRET=x -e ZTP_ENABLE_SECRET=y -e ZTP_SNMP_RO=z ztpd
+          for i in $(seq 20); do curl -sf localhost:8080/healthz && break; sleep 0.5; done
+          curl -sf localhost:8080/ztp/bootstrap/eos.sh | head -3
+          curl -sf localhost:8080/ztp/config/FOC2231X0A1 | head -5
+          docker logs z

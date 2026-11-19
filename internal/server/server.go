@@ -286,10 +286,12 @@ func (s *Server) rows() []deviceRow {
 		out = append(out, row)
 	}
 	// boxes that asked for a config but aren't in the sheet: usually a typo in
-	// the serial, or a switch that was racked in the wrong place
+	// the serial, or a switch that was racked in the wrong place. Whatever
+	// they reported after the 404 (the bootstrap script sends "config
+	// failed"), they're still unknown until someone adds them.
 	for _, k := range sortedKeys(states) {
 		st := states[k]
-		if _, known := s.inv.Lookup(k); !known && st.Stage == StageUnknown {
+		if _, known := s.inv.Lookup(k); !known {
 			out = append(out, deviceRow{Serial: k, Stage: StageUnknown, LastSeen: st.LastSeen, Remote: st.Remote, Msg: st.Msg})
 		}
 	}

@@ -1,0 +1,21 @@
+[Unit]
+Description=ztpd zero-touch provisioning server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ztpd
+WorkingDirectory=/etc/ztpd
+# ZTP_ADMIN_SECRET, ZTP_ENABLE_SECRET, ZTP_SNMP_RO, ZTPD_TOKEN, ZTPD_URL, ZTPD_ALLOW
+EnvironmentFile=/etc/ztpd/secrets.env
+ExecStart=/usr/local/bin/ztpd serve -log /var/lib/ztpd/events.jsonl
+ExecReload=/bin/kill -HUP $MAINPID
+StateDirectory=ztpd
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
